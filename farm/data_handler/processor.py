@@ -339,8 +339,8 @@ class GNADProcessor(Processor):
 
     def _dict_to_samples(self, dict: dict) -> [Sample]:
         # this tokenization also stores offsets
-        tokenized = tokenize_with_metadata(
-            dict["text"], self.tokenizer, self.max_seq_len
+        tokenized = self.tokenizer.tokenize_with_offsets(
+            dict["text"], self.max_seq_len
         )
         return [Sample(id=None, clear_text=dict, tokenized=tokenized)]
 
@@ -356,7 +356,7 @@ class GNADProcessor(Processor):
 
 class GermEval18CoarseProcessor(Processor):
     """
-    Used to handle the GermEval18 dataset that uses the coase labels
+    Used to handle the GermEval18 dataset that uses the coarse labels
     """
 
     def __init__(
@@ -404,8 +404,8 @@ class GermEval18CoarseProcessor(Processor):
 
     def _dict_to_samples(self, dict: dict) -> [Sample]:
         # this tokenization also stores offsets
-        tokenized = tokenize_with_metadata(
-            dict["text"], self.tokenizer, self.max_seq_len
+        tokenized = self.tokenizer.tokenize_with_offsets(
+            dict["text"], self.max_seq_len
         )
         return [Sample(id=None, clear_text=dict, tokenized=tokenized)]
 
@@ -470,8 +470,8 @@ class GermEval18FineProcessor(Processor):
 
     def _dict_to_samples(self, dict: dict) -> [Sample]:
         # this tokenization also stores offsets
-        tokenized = tokenize_with_metadata(
-            dict["text"], self.tokenizer, self.max_seq_len
+        tokenized = self.tokenizer.tokenize_with_offsets(
+            dict["text"], self.max_seq_len
         )
         return [Sample(id=None, clear_text=dict, tokenized=tokenized)]
 
@@ -541,8 +541,8 @@ class CONLLProcessor(Processor):
 
     def _dict_to_samples(self, dict: dict) -> [Sample]:
         # this tokenization also stores offsets, which helps to map our entity tags back to original positions
-        tokenized = tokenize_with_metadata(
-            dict["text"], self.tokenizer, self.max_seq_len
+        tokenized = self.tokenizer.tokenize_with_offsets(
+            dict["text"], self.max_seq_len
         )
         return [Sample(id=None, clear_text=dict, tokenized=tokenized)]
 
@@ -610,7 +610,7 @@ class GermEval14Processor(Processor):
 
     def _dict_to_samples(self, dict: dict) -> [Sample]:
         # this tokenization also stores offsets, which helps to map our entity tags back to original positions
-        tokenized = tokenize_with_metadata(
+        tokenized = self.tokenizer.tokenize_with_offsets(
             dict["text"], self.tokenizer, self.max_seq_len
         )
         return [Sample(id=None, clear_text=dict, tokenized=tokenized)]

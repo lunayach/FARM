@@ -20,11 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 def sample_to_features_text(
-    sample, label_list, max_seq_len, tokenizer, target="classification"
+        sample, label_list, max_seq_len, tokenizer, target="classification"
 ):
     """
     Generates a dictionary of features for a given input sample that is to be consumed by a text classification model.
-
     :param sample: Sample object that contains human readable text and label fields from a single text classification data sample
     :type sample: Sample
     :param label_list: A list of all unique labels
@@ -38,56 +37,25 @@ def sample_to_features_text(
              in inference mode). The values are lists containing those features.
     :rtype: dict
     """
-
-    label_map = {label: i for i, label in enumerate(label_list)}
-
-    # tokens = tokenizer.tokenize(sample.clear_text["text"])
     tokens = sample.tokenized["tokens"]
-    # tokens = sample.tokenized["word_pieces"]
-    # Account for [CLS] and [SEP] with "- 2"
-    if len(tokens) > max_seq_len - 2:
-        tokens = tokens[: (max_seq_len - 2)]
 
-    # The convention in BERT is:
-    # (a) For sequence pairs:
-    #  tokens:   [CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]
-    #  type_ids: 0   0  0    0    0     0       0 0    1  1  1  1   1 1
-    # (b) For single sequences:
-    #  tokens:   [CLS] the dog is hairy . [SEP]
-    #  type_ids: 0   0   0   0  0     0 0
-    #
-    # Where "type_ids" are used to indicate whether this is the first
-    # sequence or the second sequence. The embedding vectors for `type=0` and
-    # `type=1` were learned during pre-training and are added to the wordpiece
-    # embedding vector (and position vector). This is not *strictly* necessary
-    # since the [SEP] token unambiguously separates the sequences, but it makes
-    # it easier for the model to learn the concept of sequences.
-    #
-    # For classification tasks, the first vector (corresponding to [CLS]) is
-    # used as as the "sentence vector". Note that this only makes sense because
-    # the entire model is fine-tuned.
-    tokens = ["[CLS]"] + tokens + ["[SEP]"]
-
+    # TODO decide how we want to get the segment_ids back (either the tokenizer has them or we calculate them here)
     segment_ids = [0] * len(tokens)
-
     input_ids = tokenizer.convert_tokens_to_ids(tokens)
-
     # The mask has 1 for real tokens and 0 for padding tokens. Only real
     # tokens are attended to.
     padding_mask = [1] * len(input_ids)
-
-    # Zero-pad up to the sequence length.
+    # Zero-pad up all features to the sequence length.
     padding = [0] * (max_seq_len - len(input_ids))
     input_ids += padding
     padding_mask += padding
     segment_ids += padding
-
     assert len(input_ids) == max_seq_len
     assert len(padding_mask) == max_seq_len
     assert len(segment_ids) == max_seq_len
-
-    # For inference mode
+    # Labels are not present at inference time
     try:
+        label_map = {label: i for i, label in enumerate(label_list)}
         if target == "classification":
             label_ids = label_map[sample.clear_text["label"]]
         elif target == "regression":
@@ -97,13 +65,11 @@ def sample_to_features_text(
             raise KeyError(target)
     except KeyError:
         label_ids = None
-
     feat_dict = {
         "input_ids": input_ids,
         "padding_mask": padding_mask,
         "segment_ids": segment_ids,
     }
-
     if label_ids is not None:
         feat_dict["label_ids"] = label_ids
     return [feat_dict]
