@@ -20,13 +20,84 @@ import logging
 from io import open
 import os
 import unicodedata
+import six
+import json
+from google.protobuf.json_format import MessageToJson
 
-from pytorch_transformers.tokenization_bert import BertTokenizer, WordpieceTokenizer, BasicTokenizer, load_vocab
+import farm.modeling.sentencepiece_pb2 as sentencepiece_pb2
+
+from pytorch_transformers.tokenization_bert import WordpieceTokenizer, load_vocab
+from pytorch_transformers.tokenization_bert import BertTokenizer as BertTokenizerHF
+from pytorch_transformers.tokenization_bert import BasicTokenizer as BasicTokenizerHF
+
+from pytorch_transformers.tokenization_xlnet import XLNetTokenizer as XLNetTokenizerHF
 
 logger = logging.getLogger(__name__)
 
+SPIECE_UNDERLINE = u'▁'
 
-class BasicTokenizer(BasicTokenizer):
+
+
+class XLNetTokenizer(XLNetTokenizerHF):
+    def __init__(self, vocab_file, max_len=None,
+                 do_lower_case=False, remove_space=True, keep_accents=False,
+                 bos_token="<s>", eos_token="</s>", unk_token="<unk>", sep_token="<sep>",
+                 pad_token="<pad>", cls_token="<cls>", mask_token="<mask>",
+                 additional_special_tokens=["<eop>", "<eod>"], **kwargs):
+        super().__init__(vocab_file, max_len,
+                 do_lower_case, remove_space, keep_accents,
+                 bos_token, eos_token, unk_token, sep_token,
+                 pad_token, cls_token, mask_token,
+                 additional_special_tokens, **kwargs)
+        self.spt = sentencepiece_pb2.SentencePieceText()
+
+
+    def _tokenize(self, text, return_unicode=True, sample=False):
+        """
+        Tokenize a string. Copied from parent class but with support for token to text alignment
+        """
+
+        if not sample:
+            pieces, self.offsets = self.tokenize_with_offsets(text)
+            self.initial_mask = word_initial_mask(pieces)
+
+        else:
+            raise NotImplementedError
+            # pieces = self.sp_model.SampleEncodeAsPieces(text, 64, 0.1)
+        new_pieces = []
+        for piece in pieces:
+            if len(piece) > 1 and piece[-1] == ',' and piece[-2].isdigit():
+                cur_pieces = self.sp_model.EncodeAsPieces(
+                    piece[:-1].replace(SPIECE_UNDERLINE, ''))
+                if piece[0] != SPIECE_UNDERLINE and cur_pieces[0][0] == SPIECE_UNDERLINE:
+                    if len(cur_pieces[0]) == 1:
+                        cur_pieces = cur_pieces[1:]
+                    else:
+                        cur_pieces[0] = cur_pieces[0][1:]
+                cur_pieces.append(piece[-1])
+                new_pieces.extend(cur_pieces)
+            else:
+                new_pieces.append(piece)
+
+        return new_pieces
+
+    def tokenize_with_offsets(self, text):
+        serialized_proto = self.sp_model.encode_as_serialized_proto(text)
+        self.spt.ParseFromString(serialized_proto)
+        pieces_and_spans = json.loads(MessageToJson(self.spt))["pieces"]
+        pieces = []
+        alignment = []
+        for ps in pieces_and_spans:
+            piece = ps["piece"]
+            begin = ps["begin"]
+            end = ps["end"]
+            pieces.append(piece)
+            alignment.append((begin, end))
+        offsets = [x[0] for x in alignment]
+        return pieces, offsets
+
+
+class BasicTokenizer(BasicTokenizerHF):
     def __init__(self, do_lower_case=True, never_split=None, never_split_chars=None, tokenize_chinese_chars=True):
         """ Constructs a BasicTokenizer.
 
@@ -71,7 +142,7 @@ class BasicTokenizer(BasicTokenizer):
         return ["".join(x) for x in output]
 
 
-class BertTokenizer(BertTokenizer):
+class BertTokenizer(BertTokenizerHF):
 
     def __init__(self, vocab_file, do_lower_case=True, do_basic_tokenize=True, never_split=None, never_split_chars=None,
                  unk_token="[UNK]", sep_token="[SEP]", pad_token="[PAD]", cls_token="[CLS]",
@@ -156,25 +227,71 @@ class BertTokenizer(BertTokenizer):
             logger.info("Updated vocabulary with {} out of {} tokens from custom vocabulary.".format(update_count, len(custom_vocab)))
         return self.vocab
 
+def word_initial_mask(tokens):
+    # TODO: Deal with punctuation like "."
+    style = "wordpiece"
+    for t in tokens:
+        if t[0] == "▁":
+            style = "sentencepiece"
+            break
+    if style == "wordpiece":
+        mask = wordpiece_initial_mask(tokens)
+    elif style == "sentencepiece":
+        mask = sentencepiece_initial_mask(tokens)
+    return mask
 
+def wordpiece_initial_mask(tokens):
+    mask = []
+    for t in tokens:
+        if t[:2] == "##":
+            mask.append(False)
+        elif t[0].isalpha():
+            mask.append(True)
+        else:
+            mask.append(False)
+    return mask
+
+def sentencepiece_initial_mask(tokens):
+    mask = []
+    for i, t in enumerate(tokens):
+        try:
+            if t[0] == "▁" and len(t) > 1:
+                mask.append(True)
+            elif t[0] != "▁" and t[0].isalpha() and tokens[i - 1] == "▁":
+                mask.append(True)
+            else:
+                mask.append(False)
+        except IndexError:
+            mask.append(False)
+
+    return mask
 
 
 def tokenize_with_metadata(text, tokenizer, max_seq_len):
     # split text into "words" (here: simple whitespace tokenizer)
-    words = text.split(" ")
-    word_offsets = []
-    cumulated = 0
-    for idx, word in enumerate(words):
-        word_offsets.append(cumulated)
-        cumulated += len(word) + 1  # 1 because we so far have whitespace tokenizer
+    tokens = None
+    offsets = None
+    start_of_word = None
 
-    # split "words"into "subword tokens"
-    tokens, offsets, start_of_word = _words_to_tokens(
-        words, word_offsets, tokenizer, max_seq_len
-    )
+    if type(tokenizer) == BertTokenizer:
+        words = text.split(" ")
+        word_offsets = []
+        cumulated = 0
+        for idx, word in enumerate(words):
+            word_offsets.append(cumulated)
+            cumulated += len(word) + 1  # 1 because we so far have whitespace tokenizer
+            # TODO: This is wrong if there are multiple spaces in a row
 
-    tokenized = {"tokens": tokens, "offsets": offsets, "start_of_word": start_of_word}
-    return tokenized
+        # split "words"into "subword tokens"
+        tokens, offsets, start_of_word = _words_to_tokens(
+            words, word_offsets, tokenizer, max_seq_len
+        )
+    elif type(tokenizer) == XLNetTokenizer:
+        tokens = tokenizer.tokenize(text)[:max_seq_len - 2]
+        offsets = tokenizer.offsets[:max_seq_len - 2]
+        start_of_word = tokenizer.initial_mask[:max_seq_len - 2]
+
+    return{"tokens": tokens, "offsets": offsets, "start_of_word": start_of_word}
 
 
 def _words_to_tokens(words, word_offsets, tokenizer, max_seq_len):
