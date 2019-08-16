@@ -792,10 +792,11 @@ class SquadProcessor(Processor):
             dict = self._convert_inference(infer_dict=dict)
         samples = create_samples_squad(entry=dict)
         for sample in samples:
-            tokenized = tokenize_with_metadata(
-                text=" ".join(sample.clear_text["doc_tokens"]),
-                tokenizer=self.tokenizer,
+            text_segments = [sample.clear_text["question_text"], " ".join(sample.clear_text["doc_tokens"])]
+            tokenized = self.tokenizer.tokenize_with_offsets(
+                text_segments=text_segments,
                 max_seq_len=self.max_seq_len,
+                clipping_type="seg_max"
             )
             sample.tokenized = tokenized
 

@@ -316,12 +316,17 @@ class BertTokenizer(BertTokenizerHF):
                 "start_of_word": start_of_word}
 
     def _two_segments_to_sequence(self, tokenized_segments, max_seq_len, clipping_type="even"):
-        tokens_seg = [tokenized_segments["tokens"][0], tokenized_segments["tokens"][1]]
-        offsets_seg = [tokenized_segments["offsets"][0], tokenized_segments["offsets"][1]]
-        start_of_word_seg = [tokenized_segments["start_of_word"][0], tokenized_segments["start_of_word"][1]]
+        # TODO: Pass in arguments for question clipping length
+        tokens_seg = [tokenized_segments[0]["tokens"], tokenized_segments[1]["tokens"]]
+        offsets_seg = [tokenized_segments[0]["offsets"], tokenized_segments[1]["offsets"]]
+        start_of_word_seg = [tokenized_segments[0]["start_of_word"], tokenized_segments[1]["start_of_word"]]
 
         # Number of non special tokens in sequence. "-3" for cls and 2 sep tokens
         normal_token_len = max_seq_len - 3
+
+        tokens_1, tokens_2 = None, None
+        offsets_1, offsets_2 = None, None
+        start_of_word_1, start_of_word_2 = None, None
 
         if clipping_type == "even":
             tokens_1 , tokens_2 = even_truncation(tokens_seg[0], tokens_seg[1], normal_token_len)
@@ -333,7 +338,7 @@ class BertTokenizer(BertTokenizerHF):
             offsets_1, offsets_2 = seg_max(offsets_seg[0], offsets_seg[1], normal_token_len)
             start_of_word_1, start_of_word_2 = seg_max(start_of_word_seg[0], start_of_word_seg[1], normal_token_len)
 
-        tokens = self._cls_token + tokens_1 + self._sep_token + tokens_2 + self._sep_token
+        tokens = [self._cls_token] + tokens_1 + [self._sep_token] + tokens_2 + [self._sep_token]
         offsets = [-1] + offsets_1 + [-1] + offsets_2 + [-1]
         start_of_word = [False] + start_of_word_1 + [False] + start_of_word_2 + [False]
 
@@ -351,6 +356,7 @@ def even_truncation(a, b, max_len):
     return a, b
 
 def seg_max(a, b, max_len, a_max_len=64, b_max_len=-1):
+    # TODO: Report when clipping happens? Currrently a could be clipped but if b is short, it is less than max seq len
     if a_max_len > 0:
         if len(a) > a_max_len:
             a = a[:a_max_len]
